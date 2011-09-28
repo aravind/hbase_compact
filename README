@@ -7,6 +7,12 @@ queue on the servers (via jmx) and skips the server if the queue size
 is too high (configurable).  Also, it only runs during off-peak hours
 (configurable as well).
 
+The program expects JMX credentials in a text file with the format
+
+role password
+
+The name of this text file is hard coded in the JMXQuery.java file.
+
 You will probably need the following libraries to get this to run.
 
 JSAP-2.1.jar
