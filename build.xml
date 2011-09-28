@@ -1,0 +1,42 @@
+<project name="hbase_compact" default="dist" basedir=".">
+  <description>
+    build file
+  </description>
+  <property name="src.path" location="src"/>
+  <property name="build.path" location="build"/>
+  <property name="dist.path" location="dist"/>
+
+  <path id="compile.path">
+    <fileset dir="lib/">
+      <include name="**/*.jar"/>
+    </fileset>
+  </path>
+
+  <target name="init">
+    <tstamp/>
+    <mkdir dir="${build.path}"/>
+    <mkdir dir="${dist.path}"/>
+  </target>
+
+  <target name="compile" depends="init"
+          description="compile the source " >
+    <javac destdir="${build.path}" includeantruntime="true">
+      <compilerarg value="-Xlint:unchecked -deprecation"/>
+      <src path="${src.path}"/>
+      <classpath refid="compile.path"/>
+    </javac>
+  </target>
+
+  <target name="dist" depends="compile"
+          description="generate the distribution" >
+    <mkdir dir="${dist.path}/lib"/>
+    <jar jarfile="${dist.path}/lib/${ant.project.name}.jar" basedir="${build.path}"/>
+  </target>
+
+  <target name="clean"
+          description="clean up" >
+    <delete dir="${build.path}"/>
+    <delete dir="${dist.path}"/>
+  </target>
+
+</project>

@@ -1,0 +1,22 @@
+Source code for the internal HBase offline compacter.  This runs
+during off-peak hours and cycles through all the region servers and
+kicks off region compactions, one region at a time.  It then pauses
+for a few seconds (configurable) and repeats the process till all the
+regions are done.  The program also queries the current compaction
+queue on the servers (via jmx) and skips the server if the queue size
+is too high (configurable).  Also, it only runs during off-peak hours
+(configurable as well).
+
+You will probably need the following libraries to get this to run.
+
+JSAP-2.1.jar
+commons-collections-3.2.1.jar
+commons-lang-2.6.jar
+commons-logging-1.1.1.jar
+hadoop-core-0.20-append-r1056497.jar
+hbase-0.90.3.jar
+log4j-over-slf4j-1.6.1.jar
+logback-classic-0.9.24.jar
+logback-core-0.9.24.jar
+slf4j-api-1.6.1.jar
+zookeeper-3.3.1.jar
