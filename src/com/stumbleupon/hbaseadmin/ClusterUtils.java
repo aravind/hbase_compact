@@ -15,36 +15,19 @@
 
 package com.stumbleupon.hbaseadmin;
 
-import java.io.IOException;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.Abortable;
-import org.apache.hadoop.hbase.ClusterStatus;
-import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.HServerAddress;
-import org.apache.hadoop.hbase.HServerInfo;
-import org.apache.hadoop.hbase.client.Get;
-import org.apache.hadoop.hbase.client.HBaseAdmin;
-import org.apache.hadoop.hbase.client.HConnection;
-import org.apache.hadoop.hbase.client.HTable;
-import org.apache.hadoop.hbase.client.Result;
-import org.apache.hadoop.hbase.client.ResultScanner;
-import org.apache.hadoop.hbase.client.RetriesExhaustedException;
-import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.*;
+import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.filter.FirstKeyOnlyFilter;
 import org.apache.hadoop.hbase.ipc.HRegionInterface;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.zookeeper.RootRegionTracker;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.util.*;
 
 /**
  * Maintains the state of the cluster.
@@ -53,9 +36,20 @@ class ClusterUtils {
 
   private final static Logger log = LoggerFactory.getLogger(ClusterUtils.class);
 
-  //server -> regions map for regions yet to be compacted.
+  /**
+   * Lookup table to store a List of @{link HRegionInfo}s per host.  This is used to find
+   * region configuration information such as key boundaries, table descriptors, etc.
+   */
   private static HashMap<String, List<HRegionInfo>>
     s_region_map = new HashMap<String, List<HRegionInfo>>();
+
+  /**
+   * Lookup table to store a List of {@link HServerLoad.RegionLoad}s. This is used to find
+   * the current operational information about a region, such as the number of StoreFiles and
+   * the size of each region/StoreFile.
+   */
+  private static HashMap<String, List<HServerLoad.RegionLoad>>
+    s_region_load_map = new HashMap<String, List<HServerLoad.RegionLoad>>();
 
   //server -> cpu_count map for servers.
   private static HashMap<String, Integer> s_cpu_map = new HashMap<String,Integer>();
@@ -86,7 +80,7 @@ class ClusterUtils {
 
   public static Set<String>
     getServers() {
-    return new HashSet(s_region_map.keySet());
+    return new HashSet<String>(s_region_map.keySet());
   }
 
 
@@ -96,9 +90,10 @@ class ClusterUtils {
    * removed from the sregions map.
    * sregions: map of server names and a list of regions on the server.
    */
-  public static HRegionInfo
-    getNextRegion(final String hostport,
-                  final int throttleFactor) throws Exception {
+  public static Pair<HRegionInfo, HServerLoad.RegionLoad>
+      getNextRegion(final String hostport,
+                  final int throttleFactor,
+                  final String jmx_password) throws Exception {
 
     if (s_region_map.containsKey(hostport)) {
       if (!s_region_map.get(hostport).isEmpty()) {
@@ -106,16 +101,28 @@ class ClusterUtils {
         final int compaction_queue_size =
           queryJMXIntValue(host + ":" + "10102",
                            "hadoop:name=RegionServerStatistics,service=RegionServer",
-                           "compactionQueueSize");
+                           "compactionQueueSize",
+                           jmx_password);
 
-        if (compaction_queue_size < (s_cpu_map.get(hostport).intValue() / throttleFactor))
-          return s_region_map.get(hostport).remove(0);
+        if (compaction_queue_size < (s_cpu_map.get(hostport) / throttleFactor)) {
+          HRegionInfo next_region_info = s_region_map.get(hostport).remove(0);
+
+          for (HServerLoad.RegionLoad region_load : s_region_load_map.get(hostport)) {
+            if (region_load.getNameAsString().equals(next_region_info.getRegionNameAsString())) {
+              s_region_load_map.get(hostport).remove(region_load);
+              return new Pair<HRegionInfo, HServerLoad.RegionLoad>(next_region_info, region_load);
+            }
+          }
+
+        }
         else
           log.warn(hostport + " has a queue size of " + compaction_queue_size +
                    ", skipping compaction for this round.");
       } else {
+        log.debug(hostport + " has no regions left.");
         // There are no more regions left, remove server.
         s_region_map.remove(hostport);
+        s_region_load_map.remove(hostport);
       }
     }
     return null;
@@ -124,9 +131,10 @@ class ClusterUtils {
 
   public static int queryJMXIntValue(String hostport,
                                      String mbean,
-                                     String command) throws Exception {
-    final JMXQuery client = new JMXQuery(mbean, command);
-    return (new Integer(client.execute(hostport))).intValue();
+                                     String command,
+                                     String password_file) throws Exception {
+    final JMXQuery client = new JMXQuery(mbean, command, password_file);
+    return Integer.parseInt(client.execute(hostport));
   }
 
 
@@ -134,7 +142,8 @@ class ClusterUtils {
    * re-fetches and populates the sregions and slist arrays.
    */
   public static HashMap<String, List<HRegionInfo>>
-    updateStatus(final HBaseAdmin admin)
+    updateStatus(final HBaseAdmin admin,
+                 final String jmx_password)
     throws Exception {
     final Configuration conf = admin.getConfiguration();
     final ClusterStatus cstatus = admin.getClusterStatus();
@@ -146,8 +155,10 @@ class ClusterUtils {
     HConnection connection = admin.getConnection();
 
     s_region_map.clear();
+    s_region_load_map.clear();
 
     for (HServerInfo si: cstatus.getServerInfo()) {
+      
       try {
         final HRegionInterface hri =
           connection.getHRegionConnection(new HServerAddress(si.getHostnamePort()));
@@ -157,10 +168,11 @@ class ClusterUtils {
         slist.put(hostport, si.getServerName().getBytes());
         sregions.put(hostport, hri.getOnlineRegions());
         s_region_map.put(hostport, hri.getOnlineRegions());
+        s_region_load_map.put(hostport, new ArrayList<HServerLoad.RegionLoad>(si.getLoad().getRegionsLoad()));
         s_cpu_map.put(hostport,
-                      new Integer(queryJMXIntValue(si.getHostname() + ":" + "10102",
+                      queryJMXIntValue(si.getHostname() + ":" + "10102",
                                                    "java.lang:type=OperatingSystem",
-                                                   "AvailableProcessors")));
+                                                   "AvailableProcessors", jmx_password));
       } catch (RetriesExhaustedException ex) {
         log.warn("Server down: " + si);
         log.warn("     Exception:" + ex);
@@ -169,6 +181,7 @@ class ClusterUtils {
         log.warn("     Exception:" + ex);
       }
     }
+
 
     return sregions;
   }
