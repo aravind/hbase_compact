@@ -113,12 +113,13 @@ public class HBaseCompact {
   private static void splitOrCompactHRegion(final HRegionInfo region_info, final HServerLoad.RegionLoad region_load, final HBaseAdmin admin, final String hostport) throws IOException, InterruptedException {
     final boolean dry_run = config.getBoolean("dry_run");
     final boolean do_splits = config.getBoolean("do_splits");
-    //size at which a split is called
-    final int max_split_size = config.getInt("max_split_size_in_MB");
-    final String hregion_max_filesize = admin.getConfiguration().get("hbase.hregion.max.filesize");
+    //hbase site/default config at which split is called
+    final long hregion_max_filesize = Long.parseLong(admin.getConfiguration().get("hbase.hregion.max.filesize"));
+    //get the max of user defined or default size at which a split is called
+    final long max_split_size = Math.max(config.getLong("max_split_size_in_MB"), ((hregion_max_filesize / 1024) / 1024));
 
     final int store_files = region_load.getStorefiles();
-    final int store_file_size = region_load.getStorefileSizeMB();
+    final long store_file_size = region_load.getStorefileSizeMB();
     final AssignmentManager.RegionState state_for_region = admin.getClusterStatus().getRegionsInTransition().get(region_info.getRegionNameAsString());
 
     if (state_for_region != null) {
@@ -274,7 +275,7 @@ public class HBaseCompact {
     jsap.registerParameter(dry_run);
 
     final FlaggedOption max_split_size = new FlaggedOption("max_split_size_in_MB")
-        .setStringParser(JSAP.INTEGER_PARSER)
+        .setStringParser(JSAP.LONG_PARSER)
         .setDefault("256")
         .setRequired(false)
         .setShortFlag('m')
@@ -326,6 +327,8 @@ public class HBaseCompact {
 
     if (admin.getConfiguration().get("hbase.hregion.majorcompaction").equals("0")) {
       while (iteration < num_cycles) {
+        //this try catch is so the tool doesn't die if constantly running,
+        //it just restarts from scratch on a new iteration
         try {
           Utils.waitTillTime(startHHmm, stopHHmm, sleep_between_checks);
           ClusterUtils.updateStatus(admin, jmx_password);
@@ -334,6 +337,8 @@ public class HBaseCompact {
             ++iteration;
         } catch (IOException ioe) {
           log.error("IOException caught : ", ioe);
+        } catch (RuntimeException re) {
+          log.error("RuntimeException caught : ", re);
         }
       }
     }

@@ -76,4 +76,12 @@
       <version>1.5.8</version>
     </dependency>
   </dependencies>
+
+  <repositories>
+    <repository>
+      <id>Maven Central</id>
+      <url>http://repo1.maven.org/maven2</url>
+    </repository>
+  </repositories>
+
 </project>
