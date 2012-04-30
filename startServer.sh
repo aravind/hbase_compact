@@ -1,5 +1,6 @@
 #! /bin/sh
 
+cd $(dirname $0)
 CLASSPATH=''
 for I in $(ls lib); do
     CLASSPATH=$CLASSPATH:./lib/$I

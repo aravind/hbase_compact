@@ -21,7 +21,7 @@
   <target name="compile" depends="init"
           description="compile the source " >
     <javac destdir="${build.path}" includeantruntime="true">
-      <compilerarg value="-Xlint:unchecked -deprecation"/>
+      <compilerarg value="-Xlint:deprecation -Xlint:unchecked"/>
       <src path="${src.path}"/>
       <classpath refid="compile.path"/>
     </javac>

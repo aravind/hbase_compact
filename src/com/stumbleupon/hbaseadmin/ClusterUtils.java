@@ -29,7 +29,7 @@ import org.apache.hadoop.hbase.ClusterStatus;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HServerAddress;
-import org.apache.hadoop.hbase.HServerInfo;
+import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
 import org.apache.hadoop.hbase.client.HConnection;
@@ -104,7 +104,7 @@ class ClusterUtils {
       if (!s_region_map.get(hostport).isEmpty()) {
         final String host = hostport.split(":")[0];
         final int compaction_queue_size =
-          queryJMXIntValue(host + ":" + "10102",
+          queryJMXIntValue(host + ":" + "10306",
                            "hadoop:name=RegionServerStatistics,service=RegionServer",
                            "compactionQueueSize");
 
@@ -147,18 +147,18 @@ class ClusterUtils {
 
     s_region_map.clear();
 
-    for (HServerInfo si: cstatus.getServerInfo()) {
+    for (ServerName si: cstatus.getServers()) {
       try {
         final HRegionInterface hri =
-          connection.getHRegionConnection(new HServerAddress(si.getHostnamePort()));
-        final String hostport = si.getHostnamePort();
+          connection.getHRegionConnection(si.getHostname(), si.getPort());
+        final String hostport = si.getHostAndPort();
 
         log.info("Querying: " + hostport);
         slist.put(hostport, si.getServerName().getBytes());
         sregions.put(hostport, hri.getOnlineRegions());
         s_region_map.put(hostport, hri.getOnlineRegions());
         s_cpu_map.put(hostport,
-                      new Integer(queryJMXIntValue(si.getHostname() + ":" + "10102",
+                      new Integer(queryJMXIntValue(si.getHostname() + ":" + "10306",
                                                    "java.lang:type=OperatingSystem",
                                                    "AvailableProcessors")));
       } catch (RetriesExhaustedException ex) {
@@ -252,15 +252,21 @@ class ClusterUtils {
     getServerHostingRegion(final HBaseAdmin admin,
                            final HRegionInfo region) throws Exception {
 
-    HServerAddress server = null;
+    ServerName server = null;
     HConnection connection = admin.getConnection();
 
     if (region.isRootRegion()) {
       final RootRegionTracker tracker =
         new RootRegionTracker(connection.getZooKeeperWatcher(),
                               new Abortable() {
+                                private boolean aborted = false;
                                 public void abort(String why, Throwable e) {
                                   log.error("ZK problems: {}", why);
+                                  aborted = true;
+                                }
+
+                                public boolean isAborted() {
+                                  return aborted;
                                 }
                                 });
       tracker.start();

@@ -24,6 +24,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
+import org.apache.hadoop.hbase.TableNotFoundException;
 import org.apache.hadoop.ipc.RemoteException;
 
 import org.slf4j.Logger;
@@ -74,10 +75,14 @@ public class HBaseCompact {
                                               throttleFactor);
           Utils.waitTillTime(startHHmm, stopHHmm, sleep_between_checks);
 
-          if (region != null) {
-            log.info("Compacting: " + region.getRegionNameAsString() +
-                     " on server " + hostport);
-            admin.majorCompact(region.getRegionNameAsString());
+          try {
+            if (region != null) {
+              log.info("Compacting: " + region.getRegionNameAsString() +
+                       " on server " + hostport);
+              admin.majorCompact(region.getRegionNameAsString());
+            }
+          } catch (TableNotFoundException ex) {
+            log.warn("Could not compact: " + ex);
           }
         }
 
