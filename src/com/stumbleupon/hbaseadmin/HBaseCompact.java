@@ -33,6 +33,7 @@ import org.slf4j.LoggerFactory;
 import com.martiansoftware.jsap.JSAP;
 import com.martiansoftware.jsap.FlaggedOption;
 import com.martiansoftware.jsap.stringparsers.DateStringParser;
+import com.martiansoftware.jsap.stringparsers.DoubleStringParser;
 import com.martiansoftware.jsap.JSAPResult;
 
 /**
@@ -69,26 +70,29 @@ public class HBaseCompact {
       HRegionInfo region = null;
 
       try {
+        Double skip_factor = config.getDouble("skip_factor");
         for (final String hostport: server_set) {
+          if (skip_factor <= Math.random()) {
+            region = ClusterUtils.getNextRegion(hostport,
+                                                throttleFactor);
+            Utils.waitTillTime(startHHmm, stopHHmm, sleep_between_checks);
 
-          region = ClusterUtils.getNextRegion(hostport,
-                                              throttleFactor);
-          Utils.waitTillTime(startHHmm, stopHHmm, sleep_between_checks);
-
-          try {
-            if (region != null) {
-              log.info("Compacting: " + region.getRegionNameAsString() +
-                       " on server " + hostport);
-              admin.majorCompact(region.getRegionNameAsString());
+            try {
+              if (region != null) {
+                log.info("Compacting: " + region.getRegionNameAsString() +
+                         " on server " + hostport);
+                admin.majorCompact(region.getRegionName());
+              }
+            } catch (TableNotFoundException ex) {
+              log.warn("Could not compact: " + ex);
             }
-          } catch (TableNotFoundException ex) {
-            log.warn("Could not compact: " + ex);
+          } else {
+            log.info("Skipping compactions on " + hostport + " because it's not in the cards this time.");
           }
         }
 
         Thread.sleep(sleep_between_compacts);
         server_set = ClusterUtils.getServers();
-
       } catch (RemoteException ex) {
         log.warn("Failed compaction for: " + region + ", Exception thrown: " + ex);
       }
@@ -131,6 +135,16 @@ public class HBaseCompact {
       .setLongFlag(JSAP.NO_LONGFLAG);
     site_xml.setHelp("Number of iterations to run.  The default is 1.  Set to 0 to run forever.");
     jsap.registerParameter(num_cycles);
+
+    DoubleStringParser double_parser = DoubleStringParser.getParser();
+    final FlaggedOption skip_factor = new FlaggedOption("skip_factor")
+      .setStringParser(double_parser)
+      .setDefault("0.0")
+      .setRequired(false)
+      .setShortFlag('f')
+      .setLongFlag(JSAP.NO_LONGFLAG);
+    site_xml.setHelp("Probability that the server is skipped during this compaction cycle.  The default is 0 (always compact regions on the server).");
+    jsap.registerParameter(skip_factor);
 
     final FlaggedOption pause_interval = new FlaggedOption("pause_interval")
       .setStringParser(JSAP.INTEGER_PARSER)
