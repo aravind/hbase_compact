@@ -124,7 +124,7 @@ public class HBaseCompact {
       .setRequired(false)
       .setShortFlag('t')
       .setLongFlag(JSAP.NO_LONGFLAG);
-    site_xml.setHelp("Throttle factor to limit the compaction queue.  The default (1) limits it to num threads / 1");
+    throttle_factor.setHelp("Throttle factor to limit the compaction queue.  The default (1) limits it to num threads / 1");
     jsap.registerParameter(throttle_factor);
 
     final FlaggedOption num_cycles = new FlaggedOption("num_cycles")
@@ -133,7 +133,7 @@ public class HBaseCompact {
       .setRequired(false)
       .setShortFlag('n')
       .setLongFlag(JSAP.NO_LONGFLAG);
-    site_xml.setHelp("Number of iterations to run.  The default is 1.  Set to 0 to run forever.");
+    num_cycles.setHelp("Number of iterations to run.  The default is 1.  Set to 0 to run forever.");
     jsap.registerParameter(num_cycles);
 
     DoubleStringParser double_parser = DoubleStringParser.getParser();
@@ -143,7 +143,7 @@ public class HBaseCompact {
       .setRequired(false)
       .setShortFlag('f')
       .setLongFlag(JSAP.NO_LONGFLAG);
-    site_xml.setHelp("Probability that the server is skipped during this compaction cycle.  The default is 0 (always compact regions on the server).");
+    skip_factor.setHelp("Probability that the server is skipped during this compaction cycle.  The default is 0 (always compact regions on the server).");
     jsap.registerParameter(skip_factor);
 
     final FlaggedOption pause_interval = new FlaggedOption("pause_interval")
@@ -152,7 +152,7 @@ public class HBaseCompact {
       .setRequired(false)
       .setShortFlag('p')
       .setLongFlag(JSAP.NO_LONGFLAG);
-    site_xml.setHelp("Time (in milliseconds) to pause between compactions.");
+    pause_interval.setHelp("Time (in milliseconds) to pause between compactions.");
     jsap.registerParameter(pause_interval);
 
     final FlaggedOption wait_interval = new FlaggedOption("wait_interval")
@@ -161,7 +161,7 @@ public class HBaseCompact {
       .setRequired(false)
       .setShortFlag('w')
       .setLongFlag(JSAP.NO_LONGFLAG);
-    site_xml.setHelp("Time (in milliseconds) to wait between " +
+    wait_interval.setHelp("Time (in milliseconds) to wait between " +
                      "time (are we there yet?) checks.");
     jsap.registerParameter(wait_interval);
 
@@ -174,7 +174,7 @@ public class HBaseCompact {
       .setRequired(true)
       .setShortFlag('s')
       .setLongFlag(JSAP.NO_LONGFLAG);
-    site_xml.setHelp("Time to start compactions.");
+    start_time.setHelp("Time to start compactions.");
     jsap.registerParameter(start_time);
 
     final FlaggedOption end_time = new FlaggedOption("end_time")
@@ -183,7 +183,7 @@ public class HBaseCompact {
       .setRequired(true)
       .setShortFlag('e')
       .setLongFlag(JSAP.NO_LONGFLAG);
-    site_xml.setHelp("Time to stop compactions.");
+    end_time.setHelp("Time to stop compactions.");
     jsap.registerParameter(end_time);
 
     return jsap;
