@@ -252,7 +252,7 @@ public class HBaseCompact implements Callable<Integer> {
         .setLongFlag("tableNames")
         .setList(true)
         .setListSeparator(',');
-    splitsEnabled.setHelp("Specific table names to check against (default is all)");
+    table_names.setHelp("Specific table names to check against (default is all)");
     jsap.registerParameter(table_names);
 
     final FlaggedOption files_keep = new FlaggedOption("filesKeep")
@@ -261,7 +261,7 @@ public class HBaseCompact implements Callable<Integer> {
             .setShortFlag('f')
             .setLongFlag("filesKeep")
             .setDefault("5");
-        splitsEnabled.setHelp("Number of storefiles to look for before compacting (default is 5)");
+    files_keep.setHelp("Number of storefiles to look for before compacting (default is 5)");
     jsap.registerParameter(files_keep);
 
 
