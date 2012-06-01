@@ -23,74 +23,48 @@
 
 package com.stumbleupon.hbaseadmin;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.io.File;
-import java.io.IOException;
-import java.io.PrintStream;
-import java.io.PrintWriter;
-import java.io.StringWriter;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.lang.reflect.Constructor;
-import java.text.FieldPosition;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.Collection;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import org.apache.commons.lang.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import javax.management.Attribute;
-import javax.management.InstanceNotFoundException;
-import javax.management.IntrospectionException;
-import javax.management.MBeanAttributeInfo;
-import javax.management.MBeanFeatureInfo;
-import javax.management.MBeanInfo;
-import javax.management.MBeanOperationInfo;
-import javax.management.MBeanParameterInfo;
-import javax.management.MBeanServerConnection;
-import javax.management.ObjectInstance;
-import javax.management.ObjectName;
-import javax.management.ReflectionException;
+import javax.management.*;
 import javax.management.openmbean.CompositeData;
-import javax.management.openmbean.CompositeType;
 import javax.management.openmbean.TabularData;
 import javax.management.remote.JMXConnector;
 import javax.management.remote.JMXConnectorFactory;
 import javax.management.remote.JMXServiceURL;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.io.*;
+import java.lang.reflect.Constructor;
+import java.text.ParseException;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class JMXQuery {
   private static final Logger logger = LoggerFactory.getLogger(JMXQuery.class.getName());
   protected static final Pattern CMD_LINE_ARGS_PATTERN = Pattern.compile("^([^=]+)(?:(?:\\=)(.+))?$");
 
-  private String beanName = "";
-  private String pass_file = "/home/hadoop/hbase_conf/jmxremote.password";
-  private String command = "";
-
-  public JMXQuery (String mbean, String jmx_command) {
-    this.beanName = mbean;
-    this.command = jmx_command;
+  private final String beanName;
+  private final String command;
+  private final String password_file;
+  
+  public JMXQuery (String mbean, String jmx_command, String password_file) {
+    this.beanName = StringUtils.defaultString(mbean);
+    this.command = StringUtils.defaultString(jmx_command);
+    this.password_file = StringUtils.defaultString(password_file);
   }
 
   public static void main(String[] args) throws Exception {
     JMXQuery client =
       new JMXQuery("hadoop:name=RegionServerStatistics,service=RegionServer",
-                   "compactionQueueSize");
+                   "compactionQueueSize",
+                   "/home/hadoop/hbase_conf/jmxremote.password");
     logger.info("Output: " + client.execute(args[0]));
   }
 
-  protected Map getCredentials(String filename)
-    throws FileNotFoundException,IOException {
+  protected Map<String, ?> getCredentials(String filename) throws IOException {
 
-    Map env = null;
+    Map<String, String[]> env = null;
     final StringBuilder contents = new StringBuilder();
     final BufferedReader input =  new
       BufferedReader(new FileReader(new File(filename)));
@@ -115,7 +89,7 @@ public class JMXQuery {
 
     final String[] creds = { userpass.substring(0, index), userpass.substring(index + 1) };
 
-    env = new HashMap(1);
+    env = new HashMap<String, String[]>(1);
     env.put("jmx.remote.credentials", creds);
     return env;
   }
@@ -128,13 +102,9 @@ public class JMXQuery {
       new JMXServiceURL("service:jmx:rmi://" + hostport +
                         "/jndi/rmi://" + hostport + "/jmxrmi");
     final JMXConnector jmxc =
-      JMXConnectorFactory.connect(rmiurl, getCredentials(pass_file));
+      JMXConnectorFactory.connect(rmiurl, getCredentials(password_file));
     try {
       final MBeanServerConnection mbsc = jmxc.getMBeanServerConnection();
-
-      if( beanName == null) {
-        beanName = "";
-      }
 
       final ObjectName objName = new ObjectName(beanName);
       final Set beans = mbsc.queryMBeans(objName, null);
