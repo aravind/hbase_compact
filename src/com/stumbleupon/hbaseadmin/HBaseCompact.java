@@ -49,6 +49,8 @@ public class HBaseCompact implements Callable<Integer> {
 
   private HBaseAdmin admin;
   private boolean dryRun = true;
+  private boolean splitsEnabled;
+  private long maxSplitSize;
   private String jmxremote_password;
   private Date startTime;
   private Date stopTime;
@@ -96,6 +98,19 @@ public class HBaseCompact implements Callable<Integer> {
 
   public HBaseCompact setDryRun(boolean dryRun) {
     this.dryRun = dryRun;
+    return this;
+  }
+
+  public HBaseCompact setDoSplits(boolean splitsEnabled) {
+    this.splitsEnabled = splitsEnabled;
+    return this;
+  }
+
+  public HBaseCompact setMaxSplitSize(long maxSplitSize_in_mb) {
+    //hbase site/default config at which split is called
+    final long hregion_max_filesize = Long.parseLong(admin.getConfiguration().get("hbase.hregion.max.filesize"));
+    //get the max of user defined or default size at which a split is called
+    maxSplitSize = Math.max(maxSplitSize_in_mb, ((hregion_max_filesize / 1024) / 1024));
     return this;
   }
 
@@ -209,8 +224,26 @@ public class HBaseCompact implements Callable<Integer> {
         .setRequired(false)
         .setShortFlag('d')
         .setLongFlag(JSAP.NO_LONGFLAG);
-    dryRun.setHelp("Don't actually do any compactions.");
+    dryRun.setHelp("Don't actually do any compactions or splits.");
     jsap.registerParameter(dryRun);
+
+    final FlaggedOption maxSplitSize = new FlaggedOption("maxSplitSize_in_MB")
+        .setStringParser(JSAP.LONG_PARSER)
+        .setDefault("4096")
+        .setRequired(false)
+        .setShortFlag('m')
+        .setLongFlag(JSAP.NO_LONGFLAG);
+    maxSplitSize.setHelp("Maximum size for store files (in MB) at which a region is split.");
+    jsap.registerParameter(maxSplitSize);
+
+    final FlaggedOption splitsEnabled = new FlaggedOption("splitsEnabled")
+        .setStringParser(JSAP.BOOLEAN_PARSER)
+        .setDefault("false")
+        .setRequired(false)
+        .setShortFlag('h')
+        .setLongFlag(JSAP.NO_LONGFLAG);
+    splitsEnabled.setHelp("Do splits (default split size will be 256MB unless specified).");
+    jsap.registerParameter(splitsEnabled);
 
     final FlaggedOption table_names = new FlaggedOption("tableNames")
         .setStringParser(JSAP.STRING_PARSER)
@@ -260,6 +293,8 @@ public class HBaseCompact implements Callable<Integer> {
         .setAdmin(new HBaseAdmin(hbase_conf))
         .setTableNames(config.getStringArray("tableNames"))
         .setDryRun(config.getBoolean("dryRun"))
+        .setDoSplits(config.getBoolean("splitsEnabled"))
+        .setMaxSplitSize(config.getLong("maxSplitSize_in_MB"))
         .setJmxPassword(config.getString("jmxremote_password"))
         .setStartTime(config.getDate("startTime"))
         .setStopTime(config.getDate("endTime"))
@@ -343,7 +378,7 @@ public class HBaseCompact implements Callable<Integer> {
       CompactAction action = getAction(regionSizeStatus);
       if (action.getType() != CompactActionType.NONE) {
         action.execute();
-        log.info("Done performing compaction, waiting for " + sleepBetweenCompacts + " before moving on");
+        log.info("Done performing compaction / split, waiting for " + sleepBetweenCompacts + " before moving on");
         Thread.sleep(sleepBetweenCompacts);
         return 1;
       } else {
@@ -437,9 +472,12 @@ public class HBaseCompact implements Callable<Integer> {
     HRegionInterface hri = regionSizeStatus.getRegionInterface();
     // We expect to have expected store file count for each family
     int expectedStoreFiles = filesKeep * regionSizeStatus.getFamilyCount();
-
-      // Check if we have greater than the expected number of store files
-    if (regionSizeStatus.getStoreFileCount() > expectedStoreFiles) {
+    // If splits are enabled, check if average size > maxSplitSize
+    if (splitsEnabled && (regionSizeStatus.getStoreFileSizeMB() / regionSizeStatus.getStoreFileCount()) > maxSplitSize) {
+      log.debug("Want to split: " + info.getRegionNameAsString() + " because store file size is " + regionSizeStatus.getStoreFileSizeMB());
+      return new CompactAction(CompactActionType.SPLIT, info, hri);
+      // If we are not doing splits, check if we have greater than the expected number of store files
+    } else if (regionSizeStatus.getStoreFileCount() > expectedStoreFiles) {
       log.debug("Need to compact: " + info.getRegionNameAsString() + " because number of store files is " + regionSizeStatus.getStoreFileCount());
       return new CompactAction(CompactActionType.COMPACT, info, hri);
     } else {
@@ -452,7 +490,7 @@ public class HBaseCompact implements Callable<Integer> {
     return this;
   }
 
-  public enum CompactActionType {NONE, COMPACT}
+  public enum CompactActionType {NONE, COMPACT, SPLIT}
 
   private class CompactAction {
     private CompactActionType type = CompactActionType.NONE;
@@ -477,7 +515,10 @@ public class HBaseCompact implements Callable<Integer> {
     private void execute() throws InterruptedException, IOException {
       if (type == CompactActionType.COMPACT) {
         log.info("Compacting region " + info.getRegionNameAsString());
-        hri.compactRegion(info, true);
+        hri.compactRegion(info, true);//hri.compactRegion(info, true);
+      } else if (type == CompactActionType.SPLIT) {
+        log.info("Splitting region " + info.getRegionNameAsString());
+        hri.splitRegion(info);
       }
     }
 
